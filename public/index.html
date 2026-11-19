@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f1b">
+  <meta name="description" content="在本地查看 API 中转站的模型列表、验证接口调用并测量响应延时。">
+  <title>月见中继站 · API 中转站测试</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/" aria-label="月见中继站首页">
+        <span class="brand-mark" aria-hidden="true"><span>✦</span></span>
+        <span><strong>月见中继站</strong><small>TSUKIMI RELAY</small></span>
+      </a>
+      <div class="local-chip"><span class="dot"></span> 本地运行 <span id="local-port" class="port"></span></div>
+    </div>
+  </header>
+
+  <main class="shell main">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-content">
+        <div class="hero-label"><span aria-hidden="true">✦</span> 本地 API 测试台</div>
+        <h1 id="page-title">中转站<span>可用性测试</span></h1>
+        <p>获取模型列表，发送测试请求，实时查看输出和延时。</p>
+      </div>
+      <span class="hero-coordinate" aria-hidden="true"></span>
+    </section>
+
+    <div class="workspace">
+      <section class="panel connection-panel" aria-labelledby="connection-title">
+        <div class="panel-head">
+          <span class="section-icon" aria-hidden="true">⌁</span>
+          <h2 id="connection-title">连接设置</h2>
+        </div>
+        <form id="connection-form" class="connection-form" autocomplete="off">
+          <label class="field">
+            <span>中转站 URL</span>
+            <input id="base-url" type="url" placeholder="https://relay.example/v1" required maxlength="2000" spellcheck="false">
+          </label>
+          <div class="field">
+            <label for="api-key">API Key</label>
+            <div class="input-group">
+              <input id="api-key" type="password" placeholder="输入中转站 API Key" required maxlength="2048" spellcheck="false">
+              <button type="button" id="toggle-key" class="input-action" aria-pressed="false" aria-label="显示 API Key">显示</button>
+            </div>
+          </div>
+          <fieldset class="field protocol-field">
+            <legend>接口协议</legend>
+            <div class="protocol-grid">
+              <label><input type="radio" name="protocol" value="responses" checked><span><i aria-hidden="true">✦</i> Responses</span></label>
+              <label><input type="radio" name="protocol" value="chat"><span><i aria-hidden="true">◈</i> Chat Completions</span></label>
+              <label><input type="radio" name="protocol" value="claude"><span><i aria-hidden="true">✳</i> Claude Messages</span></label>
+              <label><input type="radio" name="protocol" value="gemini"><span><i aria-hidden="true">✧</i> Gemini</span></label>
+            </div>
+            <div class="protocol-foot">
+              <code id="endpoint">/v1/responses</code>
+              <label id="auth-label" class="auth-label" hidden>
+                <span class="sr-only">鉴权方式</span>
+                <select id="auth"><option value="native">原生鉴权</option><option value="bearer">Bearer</option></select>
+              </label>
+            </div>
+          </fieldset>
+          <button type="submit" id="discover" class="button primary wide"><span aria-hidden="true">⌕</span> 获取模型列表</button>
+          <p id="connection-status" class="connection-status" role="status">API Key 仅用于本次页面会话</p>
+        </form>
+      </section>
+
+      <section class="panel probe-panel" aria-labelledby="probe-title">
+        <div class="panel-head">
+          <span class="section-icon terminal-icon" aria-hidden="true">&gt;_</span>
+          <h2 id="probe-title">调用测试</h2>
+          <span id="probe-status" class="status" role="status"><span class="dot"></span><span>等待测试</span></span>
+        </div>
+        <form id="probe-form" class="probe-form" autocomplete="off">
+          <div class="probe-fields">
+            <label class="field">
+              <span>模型 ID</span>
+              <input id="model" type="text" list="model-suggestions" placeholder="从列表选择或手动输入" required maxlength="512" spellcheck="false">
+              <datalist id="model-suggestions"></datalist>
+            </label>
+            <label class="field">
+              <span>测试提示词</span>
+              <input id="prompt" type="text" value="请用一句话回复：连接正常。" required maxlength="8000">
+            </label>
+          </div>
+          <div class="probe-actions">
+            <label class="switch-label"><input id="stream" type="checkbox" role="switch" checked><span class="switch" aria-hidden="true"></span>流式输出</label>
+            <div class="button-group">
+              <button type="button" id="stop" class="button secondary" hidden>停止</button>
+              <button type="submit" id="run" class="button primary"><span aria-hidden="true">▶</span> 开始测试</button>
+            </div>
+          </div>
+        </form>
+        <div class="console">
+          <div class="console-head">
+            <span class="console-title"><span aria-hidden="true">▱</span> 响应输出</span>
+            <span id="output-model" class="output-model"></span>
+            <button type="button" id="copy" class="text-button" disabled>复制</button>
+            <button type="button" id="clear" class="text-button" disabled>清空</button>
+          </div>
+          <div id="console-body" class="console-body" tabindex="0" aria-label="响应输出">
+            <div id="empty-output" class="empty-output"><span class="radar" aria-hidden="true"><i></i></span><span>测试输出将在这里显示</span></div>
+            <pre id="output" hidden></pre>
+            <p id="output-note" class="output-note" hidden></p>
+          </div>
+          <div class="metrics" aria-label="延时指标">
+            <div><span>HTTP</span><strong id="http-status">—</strong></div>
+            <div><span>响应头</span><strong id="headers-time">—</strong></div>
+            <div><span>首段文本</span><strong id="first-time">—</strong></div>
+            <div><span>总耗时</span><strong id="total-time">—</strong></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel models-panel" aria-labelledby="models-title">
+      <div class="panel-head models-head">
+        <span class="section-icon" aria-hidden="true">⊞</span>
+        <h2 id="models-title">模型列表</h2>
+        <span class="count" id="model-count" aria-label="模型数">0</span>
+        <div class="models-controls">
+          <input id="search" type="search" aria-label="搜索模型" placeholder="搜索模型" disabled>
+          <button type="button" id="batch" class="button secondary" disabled>测试所选</button>
+        </div>
+      </div>
+      <div id="models-empty" class="models-empty">获取模型列表后，可在此选择要实测的模型。</div>
+      <div id="model-table" class="table-wrap" hidden>
+        <table>
+          <thead><tr><th scope="col"><input id="select-all" type="checkbox" aria-label="选择当前搜索结果中的所有模型"></th><th scope="col">模型 ID</th><th scope="col">测试结果</th><th scope="col">总耗时</th><th scope="col">操作</th></tr></thead>
+          <tbody id="model-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <template id="model-row">
+      <tr><td><input type="checkbox"></td><td><button type="button" class="model-id"></button><small class="model-name" hidden></small></td><td><span class="row-status">未测试</span></td><td class="row-time">—</td><td class="row-actions"><button type="button" class="text-button row-view" hidden>查看</button><button type="button" class="text-button row-run">测试</button></td></tr>
+    </template>
+  </main>
+</body>
+</html>

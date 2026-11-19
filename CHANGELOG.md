@@ -1,0 +1,7 @@
+# 更新记录
+
+## 1.0.0
+
+- 增加本地中转站测试台，支持 OpenAI Responses、OpenAI Chat Completions、Claude Messages 和 Gemini。
+- 支持按 Key 获取模型、手输模型 ID、逐个和批量实测，以及流式输出、响应头耗时、首段耗时和总耗时。
+- 加入原创二次元月夜主视觉和测试状态交互。
