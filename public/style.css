@@ -18,7 +18,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; min-width: 320px; background: radial-gradient(ellipse at 67% 9%, #17213e 0%, transparent 52%); }
+body { margin: 0; background: radial-gradient(ellipse at 67% 9%, #17213e 0%, transparent 52%); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .55; }
