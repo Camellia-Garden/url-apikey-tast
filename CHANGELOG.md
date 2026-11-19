@@ -1,5 +1,9 @@
 # 更新记录
 
+## 未发布
+
+- 更换首页横幅，加入向下渐隐的海港插画背景。
+
 ## 1.0.0
 
 - 增加本地中转站测试台，支持 OpenAI Responses、OpenAI Chat Completions、Claude Messages 和 Gemini。

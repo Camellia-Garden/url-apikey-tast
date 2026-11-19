@@ -96,7 +96,11 @@ test('serves UI and assets and binds API requests to the local origin', async ()
   const page = await fetch(local);
   assert.match(await page.text(), /中转站<span>可用性测试/);
   assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
-  assert.equal((await fetch(`${local}/moon-relay.webp`)).headers.get('content-type'), 'image/webp');
+  for (const name of ['hero-art.jpg', 'page-background.jpg']) {
+    const asset = await fetch(`${local}/${name}`);
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get('content-type'), 'image/jpeg');
+  }
   assert.equal((await request('models', {}, { Origin: 'https://example.com' })).status, 403);
   assert.equal((await request('models', {}, { 'Content-Type': 'text/plain' })).status, 415);
 });

@@ -7,7 +7,8 @@ const files = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
-  ['/moon-relay.webp', ['moon-relay.webp', 'image/webp']],
+  ['/hero-art.jpg', ['hero-art.jpg', 'image/jpeg']],
+  ['/page-background.jpg', ['page-background.jpg', 'image/jpeg']],
 ]);
 
 function json(res, status, body) {
