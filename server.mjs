@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { connection, errorMessage, listModels, probe, probeInput } from './relay.mjs';
+import { attachWindowsControl, localPort } from './windows-launcher.mjs';
 
 const files = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -98,16 +99,19 @@ export function createApp() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const port = Number(process.argv[2] ?? process.env.PORT ?? 3177);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error('端口需要是 1–65535 的整数。');
-    process.exitCode = 1;
-  } else {
+  try {
+    const port = localPort(process.argv[2]);
     const server = createApp();
     server.on('error', error => {
       console.error(error.code === 'EADDRINUSE' ? `端口 ${port} 已占用。可以用 npm start -- 其他端口 启动。` : error.message);
       process.exitCode = 1;
     });
-    server.listen(port, '127.0.0.1', () => console.log(`月见中继站 · http://127.0.0.1:${port}`));
+    server.listen(port, '127.0.0.1', () => {
+      attachWindowsControl(server, port);
+      console.log(`月见中继站 · http://127.0.0.1:${port}`);
+    });
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
   }
 }
