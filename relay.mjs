@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+import { diagnose, outputRestriction } from './diagnostics.mjs';
 
 const protocols = {
   responses: { version: 'v1', endpoint: 'responses' },
@@ -8,9 +9,10 @@ const protocols = {
 };
 
 export class RelayError extends Error {
-  constructor(message, status = null) {
+  constructor(message, status = null, details = {}) {
     super(message);
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -61,33 +63,56 @@ export function errorMessage(error, settings, signal) {
   return code ? `连接中转站失败（${code}）。` : '连接中转站失败或响应中断。';
 }
 
+export function errorDiagnosis(error, settings, signal, status = null) {
+  const details = Object.fromEntries(Object.entries(error.details ?? {}).map(([name, value]) =>
+    [name, typeof value === 'string' ? redact(value, settings.key) : value]));
+  return diagnose({
+    status: error.status ?? status,
+    ...details,
+    upstreamMessage: details.upstreamMessage ?? errorMessage(error, settings, signal),
+    networkCode: error.cause?.code,
+    timeout: signal.reason?.name === 'TimeoutError',
+  });
+}
+
+function reportsError(data) {
+  return Boolean(data?.error || data?.response?.error || data?.success === false ||
+    ['failed', 'error'].includes(data?.status) || ['error', 'response.failed'].includes(data?.type));
+}
+
 async function jsonResponse(response, settings) {
+  const raw = await response.text();
   let data;
   try {
-    data = await response.json();
-  } catch (error) {
-    if (error.name !== 'SyntaxError') throw error;
-  }
-  if (!response.ok || data?.error) {
-    throw new RelayError(upstreamError(data, response.status, settings), response.status);
-  }
-  if (!data || typeof data !== 'object') {
-    throw new RelayError('中转站返回的内容不是有效的 API JSON。', response.status);
+    data = JSON.parse(raw);
+  } catch { /* Plain-text and HTML refusals still carry useful diagnostics. */ }
+  const failure = upstreamError(data, response.status, settings, raw);
+  const hasResult = Array.isArray(data?.data) || Array.isArray(data?.models) || Array.isArray(data?.output) ||
+    Array.isArray(data?.choices) || Array.isArray(data?.content) || Array.isArray(data?.candidates) || typeof data?.output_text === 'string';
+  const failedCode = !hasResult && data?.code != null && !['0', '200', 'OK', 'SUCCESS'].includes(String(data.code).toUpperCase());
+  const category = diagnose(failure.details).category;
+  if (!response.ok || reportsError(data) || !hasResult) {
+    if (response.ok && !reportsError(data) && !failedCode && category === 'unknown_error') failure.details.kind = 'invalid_response';
+    throw failure;
   }
   return data;
 }
 
-function upstreamError(data, status, settings) {
-  const detail = data?.error?.message ?? data?.error ?? data?.message;
-  if (typeof detail === 'string' && detail.trim()) return redact(detail, settings.key).slice(0, 1400);
-  const messages = {
-    401: '鉴权失败，请检查 API Key。',
-    403: '访问被拒绝，请检查 Key 权限。',
-    404: '找不到接口或模型，请检查 URL 和协议。',
-    429: '请求被限流，或当前配额不足。',
+function upstreamError(data, status, settings, raw) {
+  const error = data?.response?.error ?? data?.error;
+  const detail = error?.message ?? (typeof error === 'string' ? error : undefined) ??
+    data?.message ?? data?.msg ?? data?.detail ?? (typeof data === 'string' ? data : undefined);
+  const clean = value => redact(String(value ?? ''), settings.key);
+  const plain = raw?.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const message = clean(typeof detail === 'string' ? detail : plain).slice(0, 1400);
+  const details = {
+    upstreamMessage: message,
+    code: clean(error?.code ?? data?.code ?? (Array.isArray(error?.details) ? error.details.find(item => item?.reason)?.reason : '')).slice(0, 200),
+    errorType: clean(error?.type ?? error?.status ?? (data?.type !== 'error' ? data?.type : '')).slice(0, 200),
+    rawResponse: clean(raw ?? JSON.stringify(data) ?? '').slice(0, 6000),
   };
-  if (status >= 300 && status < 400) return '中转站返回了重定向，请直接填写最终 API 地址。';
-  return messages[status] ?? `中转站返回 HTTP ${status}。`;
+  return new RelayError(message || `中转站返回 HTTP ${status}。`, status, details);
 }
 
 export async function listModels(settings, signal, tick) {
@@ -103,7 +128,7 @@ export async function listModels(settings, signal, tick) {
     tick(status);
     const data = await jsonResponse(response, settings);
     const entries = protocol === 'gemini' ? data.models : data.data;
-    if (!Array.isArray(entries)) throw new RelayError('返回内容没有标准的模型列表。', status);
+    if (!Array.isArray(entries)) throw new RelayError('返回内容没有标准的模型列表。', status, { kind: 'invalid_response' });
     for (const entry of entries) {
       const rawId = protocol === 'gemini' ? entry?.name : entry?.id;
       if (typeof rawId !== 'string' || !rawId.trim()) continue;
@@ -222,6 +247,7 @@ export async function probe(settings, input, signal, emit) {
   let charCount = 0;
   let streamed = false;
   let pending = '';
+  let inspectionText = '';
   const flush = (value = '') => {
     if (value) emit({ type: 'text', value: redact(value, settings.key), firstTextMs });
   };
@@ -229,6 +255,7 @@ export async function probe(settings, input, signal, emit) {
     if (typeof value !== 'string' || !value) return;
     if (firstTextMs === null) firstTextMs = elapsed(start);
     charCount += value.length;
+    if (inspectionText.length <= 2400) inspectionText += value.slice(0, 2401 - inspectionText.length);
     pending += value;
     // Hold only a suffix that could become the key in a later chunk.
     const masked = redact(pending, settings.key);
@@ -261,10 +288,13 @@ export async function probe(settings, input, signal, emit) {
         try {
           data = JSON.parse(event);
         } catch {
-          throw new RelayError('中转站返回了无效的 SSE JSON。');
+          throw new RelayError('中转站返回了无效的 SSE JSON。', status, { kind: 'invalid_response', rawResponse: redact(event, settings.key).slice(0, 6000) });
         }
-        if (data.error || ['error', 'response.failed'].includes(data.type)) {
-          throw new RelayError(upstreamError(data.response ?? data, status, settings));
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+          throw new RelayError('中转站返回的 SSE 事件不是 API 对象。', status, { kind: 'invalid_response', rawResponse: redact(event, settings.key).slice(0, 6000) });
+        }
+        if (reportsError(data)) {
+          throw upstreamError(data, status, settings);
         }
         const part = streamPart(settings.protocol, data);
         output(part.text);
@@ -274,18 +304,20 @@ export async function probe(settings, input, signal, emit) {
           break;
         }
       }
-      if (!done) throw new RelayError('流式响应提前中断，未收到结束事件。');
+      if (!done && !outputRestriction(inspectionText)) throw new RelayError('流式响应提前中断，未收到结束事件。', status, { kind: 'stream_interrupted' });
     } else {
       const data = await jsonResponse(response, settings);
-      if (data.status === 'failed') throw new RelayError(upstreamError(data, status, settings));
       output(completeText(settings.protocol, data));
     }
 
-    if (!charCount) throw new RelayError('中转站已响应，但模型没有返回可显示的文本。');
+    if (outputRestriction(inspectionText)) {
+      throw new RelayError(inspectionText, status, { upstreamMessage: inspectionText, rawResponse: inspectionText });
+    }
+    if (!charCount) throw new RelayError('中转站已响应，但模型没有返回可显示的文本。', status, { kind: 'empty_response' });
     flush(pending);
     emit({ type: 'done', status, headersMs, firstTextMs: streamed ? firstTextMs : null, durationMs: elapsed(start) });
   } catch (error) {
     flush(pending);
-    emit({ type: 'error', status, headersMs, firstTextMs: streamed ? firstTextMs : null, durationMs: elapsed(start), message: errorMessage(error, settings, signal) });
+    emit({ type: 'error', status, headersMs, firstTextMs: streamed ? firstTextMs : null, durationMs: elapsed(start), message: errorMessage(error, settings, signal), diagnosis: errorDiagnosis(error, settings, signal, status) });
   }
 }

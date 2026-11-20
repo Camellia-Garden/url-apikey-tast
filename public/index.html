@@ -66,6 +66,7 @@
           </fieldset>
           <button type="submit" id="discover" class="button primary wide"><span aria-hidden="true">⌕</span> 获取模型列表</button>
           <p id="connection-status" class="connection-status" role="status">API Key 仅用于本次页面会话</p>
+          <div id="connection-diagnosis" class="diagnosis" hidden></div>
         </form>
       </section>
 
@@ -107,6 +108,7 @@
             <pre id="output" hidden></pre>
             <p id="output-note" class="output-note" hidden></p>
           </div>
+          <div id="probe-diagnosis" class="diagnosis probe-diagnosis" aria-live="polite" hidden></div>
           <div class="metrics" aria-label="延时指标">
             <div><span>HTTP</span><strong id="http-status">—</strong></div>
             <div><span>响应头</span><strong id="headers-time">—</strong></div>
@@ -137,7 +139,14 @@
     </section>
 
     <template id="model-row">
-      <tr><td><input type="checkbox"></td><td><button type="button" class="model-id"></button><small class="model-name" hidden></small></td><td><span class="row-status">未测试</span></td><td class="row-time">—</td><td class="row-actions"><button type="button" class="text-button row-view" hidden>查看</button><button type="button" class="text-button row-run">测试</button></td></tr>
+      <tr><td><input type="checkbox"></td><td><button type="button" class="model-id"></button><small class="model-name" hidden></small></td><td><span class="row-status">未测试</span><small class="row-reason" hidden></small></td><td class="row-time">—</td><td class="row-actions"><button type="button" class="text-button row-view" hidden>查看</button><button type="button" class="text-button row-run">测试</button></td></tr>
+    </template>
+    <template id="diagnosis-template">
+      <div class="diagnosis-heading"><span aria-hidden="true">◇</span><strong class="diagnosis-label"></strong><span class="diagnosis-verdict"></span></div>
+      <p class="diagnosis-summary"></p>
+      <p class="diagnosis-suggestion"></p>
+      <p class="diagnosis-meta"></p>
+      <details class="diagnosis-details"><summary>查看原始返回</summary><pre class="diagnosis-raw"></pre></details>
     </template>
   </main>
 </body>

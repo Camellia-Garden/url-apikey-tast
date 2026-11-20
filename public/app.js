@@ -71,7 +71,30 @@ function duration(value) {
 
 function syncOutputActions() {
   $('clear').disabled = Boolean(operation) || !current;
-  $('copy').disabled = !current?.text;
+  $('copy').disabled = !(current?.text || current?.diagnosis || current?.message);
+}
+
+function renderDiagnosis(element, diagnosis) {
+  element.hidden = !diagnosis;
+  element.replaceChildren();
+  if (!diagnosis) return;
+  element.append($('diagnosis-template').content.cloneNode(true));
+  tone(element, diagnosis.tone);
+  element.querySelector('.diagnosis-label').textContent = diagnosis.label;
+  element.querySelector('.diagnosis-verdict').textContent = diagnosis.category === 'client_restricted' ? '待客户端验证' : '本次未通过';
+  element.querySelector('.diagnosis-summary').textContent = diagnosis.summary;
+  element.querySelector('.diagnosis-suggestion').textContent = diagnosis.suggestion;
+  const sources = { code: '错误码', message: '返回内容', http: 'HTTP 状态', timeout: '超时', network: '连接错误', fallback: '响应情况' };
+  element.querySelector('.diagnosis-meta').textContent = [
+    diagnosis.status != null && `HTTP ${diagnosis.status}`,
+    diagnosis.code && `错误码 ${diagnosis.code}`,
+    diagnosis.errorType && `类型 ${diagnosis.errorType}`,
+    diagnosis.networkCode && `连接码 ${diagnosis.networkCode}`,
+    `依据${sources[diagnosis.source] ?? '响应情况'}判断`,
+  ].filter(Boolean).join(' · ');
+  const raw = diagnosis.rawResponse || diagnosis.upstreamMessage;
+  element.querySelector('.diagnosis-details').hidden = !raw;
+  element.querySelector('.diagnosis-raw').textContent = raw ?? '';
 }
 
 function resetConsole() {
@@ -79,6 +102,7 @@ function resetConsole() {
   output.textContent = '';
   output.hidden = true;
   $('output-note').hidden = true;
+  renderDiagnosis($('probe-diagnosis'));
   $('output-model').textContent = '';
   $('empty-output').hidden = false;
   $('empty-output').dataset.running = 'false';
@@ -102,15 +126,16 @@ function showResult(result) {
   output.textContent = result.text;
   output.hidden = !result.text;
   const note = $('output-note');
-  note.hidden = !result.message;
+  note.hidden = !result.message || Boolean(result.diagnosis);
   note.textContent = result.message ?? '';
   tone(note, result.state === 'success' ? null : result.state);
   const empty = $('empty-output');
   const running = result.state === 'active';
-  empty.hidden = Boolean(result.text || result.message);
+  empty.hidden = Boolean(result.text || result.message || result.diagnosis);
   empty.dataset.running = String(running);
   empty.lastElementChild.textContent = '等待中转站响应…';
   renderMetrics(result);
+  renderDiagnosis($('probe-diagnosis'), result.diagnosis);
   probeStatus(result.label, result.state);
   syncOutputActions();
 }
@@ -143,6 +168,10 @@ function updateRow(id) {
   const status = row.querySelector('.row-status');
   status.textContent = result?.label ?? '未测试';
   tone(status, result?.state);
+  const reason = row.querySelector('.row-reason');
+  reason.hidden = !result?.diagnosis;
+  reason.textContent = result?.diagnosis?.summary ?? '';
+  status.title = result?.diagnosis?.upstreamMessage ?? result?.message ?? '';
   row.querySelector('.row-time').textContent = duration(result?.durationMs);
   row.querySelector('.row-view').hidden = !result || result.state === 'active';
   row.querySelector('input').checked = selected.has(id);
@@ -231,6 +260,7 @@ async function post(path, payload, signal) {
     const data = await response.json();
     const error = new Error(data.message || '本地请求失败。');
     error.upstreamStatus = data.status;
+    error.diagnosis = data.diagnosis;
     throw error;
   }
   return response;
@@ -243,6 +273,7 @@ connectionForm.addEventListener('submit', async event => {
   const controller = new AbortController();
   setOperation({ kind: 'discover', controller });
   connectionStatus('正在获取模型列表…', 'active');
+  renderDiagnosis($('connection-diagnosis'));
   try {
     const response = await post('/api/models', config, controller.signal);
     const data = await response.json();
@@ -259,7 +290,8 @@ connectionForm.addEventListener('submit', async event => {
     if (controller.signal.aborted) connectionStatus('已取消获取模型。', 'stopped');
     else {
       const prefix = error.upstreamStatus ? `HTTP ${error.upstreamStatus} · ` : '';
-      connectionStatus(`${prefix}${error.message}`, 'error');
+      connectionStatus(`${prefix}${error.diagnosis?.label ?? error.message}`, error.diagnosis?.tone ?? 'error');
+      renderDiagnosis($('connection-diagnosis'), error.diagnosis);
     }
   } finally {
     setOperation(null);
@@ -276,6 +308,7 @@ function clearConnectionResults() {
   if (modelInput.value === autofilled) modelInput.value = '';
   autofilled = '';
   connectionStatus('API Key 仅用于本次页面会话');
+  renderDiagnosis($('connection-diagnosis'));
   renderTable();
   resetConsole();
 }
@@ -355,16 +388,18 @@ async function runProbe(config, model, controller, progress) {
         result.headersMs = event.headersMs;
         result.firstTextMs = event.firstTextMs;
         result.durationMs = event.durationMs;
-        result.state = event.type === 'done' ? 'success' : 'error';
-        result.label = event.type === 'done' ? '通过' : '失败';
+        result.diagnosis = event.diagnosis;
+        result.state = event.type === 'done' ? 'success' : event.diagnosis?.category === 'client_restricted' ? 'blocked' : 'error';
+        result.label = event.type === 'done' ? '通过' : event.diagnosis?.label ?? '未通过';
         result.message = event.message ?? (config.stream && !upstreamStreamed ? '中转站返回普通响应，首段延时仅在 SSE 流式响应中测量。' : '');
       }
     }
     if (!terminal) throw new Error('本地响应提前中断。');
   } catch (error) {
     const stopped = controller.signal.aborted;
-    result.state = stopped ? 'stopped' : 'error';
-    result.label = stopped ? '已停止' : '失败';
+    result.diagnosis = stopped ? null : error.diagnosis;
+    result.state = stopped ? 'stopped' : error.diagnosis?.category === 'client_restricted' ? 'blocked' : 'error';
+    result.label = stopped ? '已停止' : error.diagnosis?.label ?? '未通过';
     result.message = stopped ? '已停止本次测试。' : error.message;
     result.durationMs = Math.round(performance.now() - started);
   } finally {
@@ -389,17 +424,18 @@ function runTests(ids) {
 }
 
 async function runQueue(ids, config, controller) {
-  let passed = 0;
+  const counts = { success: 0, blocked: 0, error: 0, stopped: 0 };
   try {
     for (const [index, model] of ids.entries()) {
       if (controller.signal.aborted) break;
       const progress = ids.length > 1 ? `${index + 1}/${ids.length}` : '';
       const result = await runProbe(config, model, controller, progress);
-      if (result.state === 'success') passed++;
+      counts[result.state]++;
     }
     if (ids.length > 1) {
       const stopped = controller.signal.aborted;
-      probeStatus(stopped ? `已停止 · ${passed}/${ids.length} 通过` : `${passed}/${ids.length} 通过`, stopped ? 'stopped' : passed === ids.length ? 'success' : 'error');
+      const summary = [stopped && '已停止', `${counts.success}/${ids.length} 通过`, counts.blocked && `${counts.blocked} 客户端限制`, counts.error && `${counts.error} 异常`].filter(Boolean).join(' · ');
+      probeStatus(summary, stopped ? 'stopped' : counts.error ? 'error' : counts.blocked ? 'blocked' : 'success');
     }
   } finally {
     setOperation(null);
@@ -423,7 +459,12 @@ $('copy').addEventListener('click', async event => {
   const button = event.currentTarget;
   clearTimeout(copyTimer);
   try {
-    await navigator.clipboard.writeText(current.text);
+    const diagnosis = current.diagnosis;
+    const report = diagnosis ? [diagnosis.label, diagnosis.summary, diagnosis.suggestion,
+      diagnosis.status != null ? `HTTP ${diagnosis.status}` : '',
+      diagnosis.code && `错误码 ${diagnosis.code}`, diagnosis.errorType && `错误类型 ${diagnosis.errorType}`,
+      diagnosis.rawResponse || diagnosis.upstreamMessage].filter(Boolean).join('\n') : current.message;
+    await navigator.clipboard.writeText([current.text, report].filter(Boolean).join('\n\n'));
     button.textContent = '已复制';
   } catch {
     button.textContent = '复制失败';

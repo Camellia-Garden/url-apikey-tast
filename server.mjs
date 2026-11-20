@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { connection, errorMessage, listModels, probe, probeInput } from './relay.mjs';
+import { connection, errorDiagnosis, errorMessage, listModels, probe, probeInput } from './relay.mjs';
 import { attachWindowsControl, localPort } from './windows-launcher.mjs';
 
 const files = new Map([
@@ -84,7 +84,7 @@ export function createApp() {
         const result = await listModels(settings, signal, value => { status = value; });
         if (!res.destroyed) json(res, 200, result);
       } catch (error) {
-        if (!res.destroyed) json(res, 502, { status, message: errorMessage(error, settings, signal) });
+        if (!res.destroyed) json(res, 502, { status, message: errorMessage(error, settings, signal), diagnosis: errorDiagnosis(error, settings, signal, status) });
       }
       return;
     }
