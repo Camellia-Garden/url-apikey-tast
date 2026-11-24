@@ -16,6 +16,13 @@ const protocols = {
   claude: '/v1/messages',
   gemini: '/v1beta/models/{id}:generateContent',
 };
+const protocolLabels = {
+  responses: 'Responses',
+  chat: 'Chat Completions',
+  claude: 'Claude Messages',
+  gemini: 'Gemini',
+};
+const savedConfigsKey = 'tsukimi-relay.saved-configs';
 
 let models = [];
 let discovered = false;
@@ -23,6 +30,7 @@ let operation = null;
 let current = null;
 let autofilled = '';
 let copyTimer;
+let savedConfigs = [];
 
 $('local-port').textContent = location.port || '80';
 
@@ -37,6 +45,104 @@ function settings() {
     apiKey: $('api-key').value.trim(),
     auth: $('auth-label').hidden ? 'native' : $('auth').value,
   };
+}
+
+function configFromForm() {
+  return {
+    ...settings(),
+    model: modelInput.value.trim(),
+    prompt: promptInput.value,
+    stream: $('stream').checked,
+  };
+}
+
+function readSavedConfigs() {
+  try {
+    const value = JSON.parse(localStorage.getItem(savedConfigsKey) || '[]');
+    return Array.isArray(value) ? value.filter(item => item && item.baseUrl && item.apiKey).slice(0, 12) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedConfigs() {
+  try {
+    localStorage.setItem(savedConfigsKey, JSON.stringify(savedConfigs));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function configLabel(config) {
+  try {
+    const url = new URL(config.baseUrl);
+    return url.host || url.pathname || config.baseUrl;
+  } catch {
+    return config.baseUrl;
+  }
+}
+
+function maskApiKey(apiKey) {
+  if (apiKey.length <= 8) return '••••••••';
+  return `${apiKey.slice(0, 4)}••••${apiKey.slice(-4)}`;
+}
+
+function renderSavedConfigs() {
+  const empty = $('saved-configs-empty');
+  empty.hidden = Boolean(savedConfigs.length);
+  const list = $('saved-configs-list');
+  const fragment = document.createDocumentFragment();
+  for (const config of savedConfigs) {
+    const card = $('saved-config-template').content.firstElementChild.cloneNode(true);
+    card.querySelector('.saved-config-label').textContent = configLabel(config);
+    card.querySelector('.saved-config-url').textContent = `${protocolLabels[config.protocol] ?? config.protocol} · ${maskApiKey(config.apiKey)}`;
+    card.querySelector('.saved-config-meta').textContent = config.model ? `模型 ${config.model}` : '未指定模型，应用后可手动选择';
+    card.querySelector('.saved-config-apply').addEventListener('click', () => applySavedConfig(config));
+    card.querySelector('.saved-config-delete').addEventListener('click', () => {
+      savedConfigs = savedConfigs.filter(item => item.id !== config.id);
+      persistSavedConfigs();
+      renderSavedConfigs();
+      connectionStatus('已删除保存的配置。');
+    });
+    fragment.append(card);
+  }
+  list.replaceChildren(fragment);
+}
+
+function applySavedConfig(config) {
+  if (operation) return;
+  const model = config.model || '';
+  $('base-url').value = config.baseUrl;
+  $('api-key').value = config.apiKey;
+  const radio = [...connectionForm.querySelectorAll('input[name="protocol"]')].find(input => input.value === config.protocol);
+  if (radio) radio.checked = true;
+  $('stream').checked = config.stream !== false;
+  syncProtocol();
+  $('auth').value = config.auth || 'native';
+  autofilled = '';
+  clearConnectionResults();
+  modelInput.value = model;
+  promptInput.value = config.prompt || promptInput.value;
+  connectionStatus(`已载入 ${configLabel(config)}，点击“获取模型列表”开始测试。`, 'success');
+}
+
+function saveCurrentConfig() {
+  if (operation || !connectionForm.reportValidity()) return;
+  const draft = configFromForm();
+  const existing = savedConfigs.find(item => item.baseUrl === draft.baseUrl && item.apiKey === draft.apiKey && item.protocol === draft.protocol && item.auth === draft.auth);
+  const entry = {
+    ...draft,
+    id: existing?.id ?? (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`),
+    savedAt: new Date().toISOString(),
+  };
+  savedConfigs = [entry, ...savedConfigs.filter(item => item.id !== entry.id)].slice(0, 12);
+  if (!persistSavedConfigs()) {
+    connectionStatus('浏览器未能保存配置，请检查本地存储权限。', 'error');
+    return;
+  }
+  renderSavedConfigs();
+  connectionStatus(existing ? '已更新当前配置。' : '已保存当前配置，可从下方一键应用。', 'success');
 }
 
 function syncProtocol() {
@@ -237,7 +343,7 @@ function showConsole() {
 function setOperation(next) {
   operation = next;
   const busy = Boolean(operation);
-  for (const id of ['base-url', 'api-key', 'toggle-key', 'auth', 'discover', 'model', 'prompt', 'stream', 'run']) {
+  for (const id of ['base-url', 'api-key', 'toggle-key', 'auth', 'discover', 'model', 'prompt', 'stream', 'run', 'save-config']) {
     $(id).disabled = busy;
   }
   for (const radio of connectionForm.querySelectorAll('input[type="radio"]')) radio.disabled = busy;
@@ -307,7 +413,7 @@ function clearConnectionResults() {
   $('model-suggestions').replaceChildren();
   if (modelInput.value === autofilled) modelInput.value = '';
   autofilled = '';
-  connectionStatus('API Key 仅用于本次页面会话');
+  connectionStatus('API Key 默认仅用于本次页面会话');
   renderDiagnosis($('connection-diagnosis'));
   renderTable();
   resetConsole();
@@ -323,6 +429,7 @@ for (const radio of connectionForm.querySelectorAll('input[type="radio"]')) {
   });
 }
 $('stream').addEventListener('change', syncProtocol);
+$('save-config').addEventListener('click', saveCurrentConfig);
 $('toggle-key').addEventListener('click', event => {
   const button = event.currentTarget;
   const input = $('api-key');
@@ -473,4 +580,6 @@ $('copy').addEventListener('click', async event => {
 });
 
 syncProtocol();
+savedConfigs = readSavedConfigs();
+renderSavedConfigs();
 renderTable();

@@ -65,9 +65,23 @@
             </div>
           </fieldset>
           <button type="submit" id="discover" class="button primary wide"><span aria-hidden="true">⌕</span> 获取模型列表</button>
-          <p id="connection-status" class="connection-status" role="status">API Key 仅用于本次页面会话</p>
+          <p id="connection-status" class="connection-status" role="status">API Key 默认仅用于本次页面会话</p>
           <div id="connection-diagnosis" class="diagnosis" hidden></div>
         </form>
+        <section class="saved-configs" aria-labelledby="saved-configs-title">
+          <div class="saved-configs-head">
+            <div class="saved-configs-title">
+              <span class="section-icon saved-icon" aria-hidden="true">▣</span>
+              <div>
+                <h3 id="saved-configs-title">已保存配置</h3>
+                <p>仅保存在当前浏览器，可一键回填。</p>
+              </div>
+            </div>
+            <button type="button" id="save-config" class="button secondary">保存当前配置</button>
+          </div>
+          <div id="saved-configs-empty" class="saved-configs-empty">还没有保存的中转站配置。</div>
+          <div id="saved-configs-list" class="saved-configs-list"></div>
+        </section>
       </section>
 
       <section class="panel probe-panel" aria-labelledby="probe-title">
@@ -147,6 +161,19 @@
       <p class="diagnosis-suggestion"></p>
       <p class="diagnosis-meta"></p>
       <details class="diagnosis-details"><summary>查看原始返回</summary><pre class="diagnosis-raw"></pre></details>
+    </template>
+    <template id="saved-config-template">
+      <article class="saved-config-card">
+        <div class="saved-config-main">
+          <strong class="saved-config-label"></strong>
+          <span class="saved-config-url"></span>
+          <span class="saved-config-meta"></span>
+        </div>
+        <div class="saved-config-actions">
+          <button type="button" class="button secondary saved-config-apply">一键应用</button>
+          <button type="button" class="text-button saved-config-delete">删除</button>
+        </div>
+      </article>
     </template>
   </main>
 </body>

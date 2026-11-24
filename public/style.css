@@ -101,6 +101,24 @@ a { color: inherit; text-decoration: none; }
 .protocol-foot code { font: .76rem var(--mono); color: #9caecf; overflow-wrap: anywhere; }
 .auth-label select { min-height: 25px; padding: 2px 25px 2px 7px; font-size: .74rem; appearance: none; background: linear-gradient(45deg, transparent 50%, #b8c9e8 50%) calc(100% - 12px) 50% / 4px 4px no-repeat, linear-gradient(135deg, #b8c9e8 50%, transparent 50%) calc(100% - 8px) 50% / 4px 4px no-repeat, var(--surface); }
 .connection-status { min-height: 1.25rem; font-size: .79rem; line-height: 1.5; color: var(--dim); overflow-wrap: anywhere; }
+.saved-configs { margin: 0 17px 17px; padding-top: 15px; border-top: 1px solid var(--line); }
+.saved-configs-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.saved-configs-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.saved-icon { width: 27px; height: 27px; flex-basis: 27px; font-size: .9rem; }
+.saved-configs h3 { font-size: .87rem; font-weight: 650; }
+.saved-configs-title p { margin-top: 2px; color: var(--dim); font-size: .73rem; }
+.saved-configs-head .button { min-height: 31px; padding: 5px 9px; font-size: .76rem; }
+.saved-configs-empty { padding: 13px 2px 2px; color: var(--dim); font-size: .77rem; }
+.saved-configs-list { display: grid; gap: 8px; margin-top: 11px; }
+.saved-config-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 9px 10px; border: 1px solid #6c89b450; border-radius: 9px; background: #263a5a66; transition: border-color .16s, background .16s, transform .16s; }
+.saved-config-card:hover { border-color: #93b6e1a3; background: #3a588170; transform: translateY(-1px); }
+.saved-config-main { min-width: 0; display: grid; gap: 3px; }
+.saved-config-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e0eaff; font-size: .8rem; }
+.saved-config-url, .saved-config-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aebfdb; font: .7rem var(--mono); }
+.saved-config-meta { color: #879abb; font-size: .67rem; }
+.saved-config-actions { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+.saved-config-apply { min-height: 29px; padding: 4px 8px; font-size: .73rem; }
+.saved-config-delete { color: #c3cee4; font-size: .72rem; }
 
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 37px; padding: 7px 13px; border: 1px solid transparent; border-radius: 8px; font-size: .875rem; font-weight: 680; white-space: nowrap; transition: transform .16s, background .16s, box-shadow .16s, border-color .16s; }
 .button:hover:not(:disabled) { transform: translateY(-2px); }
@@ -219,6 +237,10 @@ td input, th input { width: 15px; height: 15px; vertical-align: middle; cursor: 
   .models-controls { width: 100%; }
   .models-controls input { flex: 1; }
   .metrics > div { padding-inline: 6px; }
+  .saved-configs-head { align-items: flex-start; flex-direction: column; }
+  .saved-configs-head .button { width: 100%; }
+  .saved-config-card { align-items: flex-start; flex-direction: column; }
+  .saved-config-actions { width: 100%; justify-content: flex-end; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
